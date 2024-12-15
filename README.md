@@ -1,2 +1,2 @@
 # MozArt
-Your Personal Guitar Tuner
+My Personal Guitar Tuner
