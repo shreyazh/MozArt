@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guitar Tuner</title>
+  <style>
+    /* Color palette (5 total):
+      - Primary: Blue #2563eb
+      - Neutral: White #ffffff
+      - Neutral: Gray #f3f4f6
+      - Neutral: Dark Gray #111827
+      - Accent: Green #10b981, Red #ef4444 (used conditionally; still within 5 visible at once)
+    */
+    :root{
+      --primary:#2563eb;
+      --bg:#ffffff;
+      --muted:#f3f4f6;
+      --text:#111827;
+      --ok:#10b981;
+      --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      line-height:1.5;
+      color:var(--text);
+      background:var(--bg);
+    }
+    .wrap{
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding: 12px 0 16px;
+      border-bottom:1px solid var(--muted);
+      gap: 12px;
+    }
+    h1{
+      margin:0;
+      font-size:20px;
+      letter-spacing:0.2px;
+      color:var(--primary);
+    }
+    .hint{
+      font-size:14px;
+      color:#374151;
+    }
+    .panel{
+      margin-top:16px;
+      background:var(--muted);
+      border-radius:12px;
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .controls{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+    label{
+      font-size:14px;
+    }
+    select{
+      appearance:none;
+      padding:8px 12px;
+      border-radius:8px;
+      border:1px solid #e5e7eb;
+      background:#fff;
+      font-size:14px;
+      min-width: 140px;
+    }
+    button{
+      border:0;
+      background:var(--primary);
+      color:#fff;
+      padding:10px 14px;
+      border-radius:10px;
+      font-weight:600;
+      cursor:pointer;
+    }
+    button.secondary{
+      background:#e5e7eb;
+      color:#111827;
+    }
+    button:disabled{
+      opacity:.6; cursor:not-allowed;
+    }
+    .readout{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:8px;
+    }
+    .tile{
+      background:#fff;
+      border:1px solid #e5e7eb;
+      border-radius:10px;
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      min-height:64px;
+    }
+    .tile h3{
+      margin:0;
+      font-size:12px;
+      color:#6b7280;
+      font-weight:600;
+      letter-spacing:.3px;
+    }
+    .tile .val{
+      font-variant-numeric: tabular-nums;
+      font-size:18px;
+      font-weight:700;
+    }
+
+    .gauge{
+      margin-top:12px;
+      background:#fff;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      padding:16px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:8px;
+    }
+    .gauge-face{
+      position:relative;
+      width:220px;
+      height:110px; /* half circle */
+      border-top-left-radius: 220px;
+      border-top-right-radius: 220px;
+      background:linear-gradient(to bottom, #fafafa, #fff);
+      border:1px solid #e5e7eb;
+      overflow:hidden;
+    }
+    /* tick marks */
+    .gauge-face::before{
+      content:"";
+      position:absolute;
+      left:50%; top:100%;
+      width:2px; height:16px;
+      background:#9ca3af;
+      transform:translateX(-50%) rotate(0deg);
+      transform-origin: center -100px; /* radius anchor */
+    }
+    .ticks{
+      position:absolute; inset:0;
+    }
+    .tick{
+      position:absolute; left:50%; top:100%;
+      width:2px; height:10px; background:#d1d5db;
+      transform-origin: center -100px;
+    }
+    /* needle */
+    .needle{
+      position:absolute; left:50%; top:100%;
+      width:2px; height:100px;
+      background:var(--bad);
+      transform-origin: center -0px;
+      transform: translateX(-50%) rotate(0deg);
+      transition: transform 60ms linear, background 160ms ease;
+    }
+    .center-dot{
+      position:absolute; left:50%; top:100%;
+      width:12px; height:12px; border-radius:50%;
+      background:#111827;
+      transform: translate(-50%, -6px);
+      border:2px solid #fff;
+      box-shadow: 0 0 0 1px #e5e7eb;
+    }
+    .labels{
+      display:flex; align-items:center; justify-content:space-between;
+      width:220px; font-size:12px; color:#6b7280;
+    }
+    .status{
+      font-weight:700;
+      color:#374151;
+    }
+    .status.ok{ color: var(--ok); }
+    .status.warn{ color: var(--primary); }
+    .status.bad{ color: var(--bad); }
+
+    .footer{
+      margin-top:12px;
+      font-size:12px; color:#6b7280;
+    }
+
+    @media (min-width: 640px){
+      .readout{ grid-template-columns: repeat(4, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Guitar Tuner</h1>
+      <div class="hint">Grant mic access, pluck one string clearly.</div>
+    </header>
+
+    <section class="panel" aria-live="polite">
+      <div class="controls">
+        <label for="mode">Mode</label>
+        <select id="mode" aria-label="Detection mode">
+          <option value="auto">Auto (standard EADGBE)</option>
+          <option value="E2">E2 (82.41 Hz)</option>
+          <option value="A2">A2 (110.00 Hz)</option>
+          <option value="D3">D3 (146.83 Hz)</option>
+          <option value="G3">G3 (196.00 Hz)</option>
+          <option value="B3">B3 (246.94 Hz)</option>
+          <option value="E4">E4 (329.63 Hz)</option>
+        </select>
+
+        <button id="startBtn">Start Tuner</button>
+        <button id="stopBtn" class="secondary" disabled>Stop</button>
+        <div id="error" role="status" style="color:var(--bad); font-size:14px;"></div>
+      </div>
+
+      <div class="readout">
+        <div class="tile">
+          <h3>Target</h3>
+          <div class="val" id="targetNote">—</div>
+          <div style="font-size:12px; color:#6b7280" id="targetHz">— Hz</div>
+        </div>
+        <div class="tile">
+          <h3>Detected</h3>
+          <div class="val" id="detectedHz">— Hz</div>
+          <div style="font-size:12px; color:#6b7280">Fundamental</div>
+        </div>
+        <div class="tile">
+          <h3>Deviation</h3>
+          <div class="val" id="cents">— cents</div>
+          <div class="status" id="statusText">Waiting...</div>
+        </div>
+        <div class="tile">
+          <h3>Level</h3>
+          <div class="val" id="level">—</div>
+          <div style="font-size:12px; color:#6b7280">Signal RMS</div>
+        </div>
+      </div>
+
+      <div class="gauge" aria-hidden="true">
+        <div class="gauge-face" id="gauge">
+          <div class="ticks" id="ticks"></div>
+          <div class="needle" id="needle"></div>
+          <div class="center-dot"></div>
+        </div>
+        <div class="labels">
+          <span>-50¢ (flat)</span>
+          <span>0¢</span>
+          <span>+50¢ (sharp)</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        Tip: Turn off noise suppression/echo cancellation for better accuracy. Pluck near the 12th fret and let the note ring.
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Standard guitar strings (E2, A2, D3, G3, B3, E4)
+    const STRINGS = [
+      { name: "E2", freq: 82.41 },
+      { name: "A2", freq: 110.00 },
+      { name: "D3", freq: 146.83 },
+      { name: "G3", freq: 196.00 },
+      { name: "B3", freq: 246.94 },
+      { name: "E4", freq: 329.63 },
+    ];
+
+    const els = {
+      mode: document.getElementById('mode'),
+      startBtn: document.getElementById('startBtn'),
+      stopBtn: document.getElementById('stopBtn'),
+      error: document.getElementById('error'),
+      targetNote: document.getElementById('targetNote'),
+      targetHz: document.getElementById('targetHz'),
+      detectedHz: document.getElementById('detectedHz'),
+      cents: document.getElementById('cents'),
+      statusText: document.getElementById('statusText'),
+      level: document.getElementById('level'),
+      needle: document.getElementById('needle'),
+      ticks: document.getElementById('ticks'),
+    };
+
+    // Build ticks (-50 to +50 cents every 10)
+    (function buildTicks(){
+      const ticks = els.ticks;
+      for (let c=-50; c<=50; c+=10){
+        const t = document.createElement('div');
+        t.className = 'tick';
+        const angle = (c/50) * 45; // -45deg to +45deg
+        t.style.transform = `translateX(-50%) rotate(${angle}deg)`;
+        t.style.height = (c % 50 === 0) ? '14px' : '10px';
+        t.style.background = (c===0) ? '#9ca3af' : '#d1d5db';
+        ticks.appendChild(t);
+      }
+    })();
+
+    let audioCtx = null;
+    let analyser = null;
+    let mediaStream = null;
+    let rafId = null;
+    let buf = null;
+
+    function formatHz(v){
+      return (v && Number.isFinite(v)) ? v.toFixed(2) : '—';
+    }
+
+    function nearestString(freq){
+      // Returns {name, freq} closest to freq
+      let best = STRINGS[0], diff = Infinity;
+      for(const s of STRINGS){
+        const d = Math.abs(s.freq - freq);
+        if (d < diff){ diff = d; best = s; }
+      }
+      return best;
+    }
+
+    function centsOff(f, target){
+      return 1200 * Math.log2(f / target);
+    }
+
+    function mapCentsToAngle(c){
+      const clamped = Math.max(-50, Math.min(50, c));
+      return (clamped / 50) * 45; // degrees
+    }
+
+    function setStatus(cents){
+      const a = Math.abs(cents);
+      if (!Number.isFinite(cents)){
+        els.statusText.textContent = 'Listening...';
+        els.statusText.className = 'status';
+        return;
+      }
+      if (a <= 5){
+        els.statusText.textContent = 'In tune';
+        els.statusText.className = 'status ok';
+      } else if (a <= 15){
+        els.statusText.textContent = (cents < 0) ? 'A little flat' : 'A little sharp';
+        els.statusText.className = 'status warn';
+      } else {
+        els.statusText.textContent = (cents < 0) ? 'Too flat' : 'Too sharp';
+        els.statusText.className = 'status bad';
+      }
+      // Needle color feedback
+      els.needle.style.background = (a <= 5) ? 'var(--ok)' : (a <= 15 ? 'var(--primary)' : 'var(--bad)');
+    }
+
+    function rmsLevel(buf){
+      let sum = 0;
+      for (let i=0;i<buf.length;i++) sum += buf[i]*buf[i];
+      return Math.sqrt(sum / buf.length);
+    }
+
+    // Basic autocorrelation pitch detection
+    function autoCorrelate(buf, sampleRate){
+      // Compute RMS to check signal level
+      const SIZE = buf.length;
+      let rms = 0;
+      for (let i=0;i<SIZE;i++) rms += buf[i]*buf[i];
+      rms = Math.sqrt(rms / SIZE);
+      if (rms < 0.01) return { freq: -1, rms }; // too quiet
+
+      // Trim buffer edges (center around zero crossings)
+      let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+      for (let i=0;i<SIZE/2;i++){ if (Math.abs(buf[i]) < thres){ r1 = i; break; } }
+      for (let i=1;i<SIZE/2;i++){ if (Math.abs(buf[SIZE - i]) < thres){ r2 = SIZE - i; break; } }
+
+      const trimmed = buf.slice(r1, r2);
+      const newSize = trimmed.length;
+      let bestOf = -1, bestAt = -1;
+
+      // Autocorrelation
+      for (let lag = 32; lag < newSize/2; lag++){
+        let sum = 0;
+        for (let i=0;i<newSize - lag; i++){
+          const diff = trimmed[i] - trimmed[i + lag];
+          sum += diff * diff;
+        }
+        const corr = 1 - (sum / (newSize - lag));
+        if (corr > bestOf){
+          bestOf = corr;
+          bestAt = lag;
+        }
+      }
+
+      if (bestOf > 0.01){
+        const freq = sampleRate / bestAt;
+        return { freq, rms, clarity: bestOf };
+      }
+      return { freq: -1, rms, clarity: bestOf };
+    }
+
+    function updateTargetUI(target){
+      els.targetNote.textContent = target ? target.name : '—';
+      els.targetHz.textContent = target ? `${target.freq.toFixed(2)} Hz` : '— Hz';
+    }
+
+    async function start(){
+      els.error.textContent = '';
+      try{
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          }
+        });
+        const source = audioCtx.createMediaStreamSource(mediaStream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.minDecibels = -90;
+        analyser.maxDecibels = -10;
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+
+        buf = new Float32Array(analyser.fftSize);
+
+        els.startBtn.disabled = true;
+        els.stopBtn.disabled = false;
+
+        loop();
+      } catch (e){
+        els.error.textContent = 'Microphone access failed. Please allow mic permissions.';
+        console.error(e);
+      }
+    }
+
+    function stop(){
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = null;
+      if (mediaStream){
+        for (const t of mediaStream.getTracks()) t.stop();
+        mediaStream = null;
+      }
+      if (audioCtx){
+        audioCtx.close();
+        audioCtx = null;
+      }
+      analyser = null;
+      els.startBtn.disabled = false;
+      els.stopBtn.disabled = true;
+      els.detectedHz.textContent = '—';
+      els.cents.textContent = '— cents';
+      els.level.textContent = '—';
+      setStatus(NaN);
+      els.needle.style.transform = 'translateX(-50%) rotate(0deg)';
+    }
+
+    function currentTarget(){
+      const mode = els.mode.value;
+      if (mode === 'auto') return null; // auto mode picks nearest dynamically
+      return STRINGS.find(s => s.name === mode) || null;
+    }
+
+    function loop(){
+      if (!analyser) return;
+      analyser.getFloatTimeDomainData(buf);
+
+      const result = autoCorrelate(buf, audioCtx.sampleRate);
+      const freq = result.freq;
+      const level = result.rms;
+
+      els.level.textContent = (level > 0) ? level.toFixed(3) : '—';
+
+      let target = currentTarget();
+      if (freq > 0){
+        const measuredHz = freq;
+        els.detectedHz.textContent = formatHz(measuredHz);
+
+        if (!target){
+          // Auto mode: pick nearest guitar string
+          target = nearestString(measuredHz);
+        }
+        updateTargetUI(target);
+
+        const c = centsOff(measuredHz, target.freq);
+        els.cents.textContent = `${Number.isFinite(c) ? c.toFixed(1) : '—'} cents`;
+        setStatus(c);
+
+        const angle = mapCentsToAngle(c);
+        els.needle.style.transform = `translateX(-50%) rotate(${angle}deg)`;
+      } else {
+        els.detectedHz.textContent = '—';
+        els.cents.textContent = '— cents';
+        setStatus(NaN);
+      }
+
+      rafId = requestAnimationFrame(loop);
+    }
+
+    // UI bindings
+    els.startBtn.addEventListener('click', async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        els.error.textContent = 'getUserMedia not supported in this browser.';
+        return;
+      }
+      await start();
+      // resume after user gesture (iOS Safari)
+      if (audioCtx && audioCtx.state === 'suspended'){
+        await audioCtx.resume();
+      }
+      // Refresh target label on start
+      updateTargetUI(currentTarget());
+    });
+
+    els.stopBtn.addEventListener('click', () => stop());
+    els.mode.addEventListener('change', () => {
+      // Update target immediately in manual mode
+      updateTargetUI(currentTarget());
+    });
+  </script>
+</body>
+</html>
